@@ -8,9 +8,16 @@ from typing import Any
 
 from loguru import logger
 
-from src.engines.sentiment import news_fetcher, scorer, sec_fetcher, sec_item_codes
+from src.engines.sentiment import (
+    finlight_fetcher,
+    news_fetcher,
+    scorer,
+    sec_fetcher,
+    sec_item_codes,
+)
 
 NOTABLE_HEADLINE_LIMIT = 3
+DIRECTION_THRESHOLD = 0.05
 
 
 def weighted_rollup(
@@ -63,6 +70,24 @@ def _score_finnhub_articles(articles: list[dict[str, Any]]) -> list[dict[str, An
                 "score": scorer.score_text(text),
                 "headline": headline,
                 "url": art.get("url"),
+                "publisher": art.get("source"),
+            }
+        )
+    return scored
+
+
+def _score_finlight_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    scored: list[dict[str, Any]] = []
+    for art in articles:
+        title = art.get("title") or ""
+        summary = art.get("summary") or ""
+        text = f"{title}. {summary}".strip(". ")
+        scored.append(
+            {
+                "source": "news_finlight",
+                "score": scorer.score_text(text),
+                "headline": title,
+                "url": art.get("link"),
                 "publisher": art.get("source"),
             }
         )
@@ -123,6 +148,34 @@ def _pick_notable(scored: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def apply_history(
+    payload: dict[str, Any],
+    prior_score: float | None,
+) -> dict[str, Any]:
+    """Set ``sentiment_direction`` and ``sentiment_delta_7d`` on ``payload``
+    given the score from roughly a week ago.
+
+    Pure function — pipeline.py is responsible for fetching ``prior_score``
+    from the repo and passing it in. With no prior datapoint, direction
+    stays ``"stable"`` and delta stays ``None`` so the row is still writable
+    on day-one of a new ticker.
+    """
+    if prior_score is None:
+        payload["sentiment_delta_7d"] = None
+        payload["sentiment_direction"] = "stable"
+        return payload
+
+    delta = round(payload["sentiment_score"] - prior_score, 4)
+    payload["sentiment_delta_7d"] = delta
+    if delta > DIRECTION_THRESHOLD:
+        payload["sentiment_direction"] = "rising"
+    elif delta < -DIRECTION_THRESHOLD:
+        payload["sentiment_direction"] = "falling"
+    else:
+        payload["sentiment_direction"] = "stable"
+    return payload
+
+
 def aggregate(
     ticker: str,
     on_date: date,
@@ -131,13 +184,13 @@ def aggregate(
 ) -> dict[str, Any]:
     """End-to-end sentiment rollup for one ticker on one day.
 
-    Phase 1 wires Finnhub + SEC EDGAR. Reddit / finlight slot in here as each
-    fetcher lands — append their scored items to ``scored`` and ensure the
-    matching weight key exists in ``config/sources.yaml``.
+    Phase 1 wires Finnhub, finlight, and SEC EDGAR. Reddit slots in here
+    once its fetcher lands — append its scored items to ``scored`` and
+    ensure the matching weight key exists in ``config/sources.yaml``.
 
     Per-source fetcher failures are logged and skipped so a single outage
-    doesn't blank the briefing. Direction and 7-day delta are placeholders
-    until the history slice lands.
+    doesn't blank the briefing. Direction and 7-day delta are filled by
+    ``apply_history`` once the pipeline supplies the prior score.
     """
     if weights is None:
         from src.config import load_sentiment_weights
@@ -152,6 +205,13 @@ def aggregate(
         logger.warning(f"{ticker}: Finnhub fetch failed: {exc}")
     else:
         scored.extend(_score_finnhub_articles(articles))
+
+    try:
+        finlight_articles = finlight_fetcher.fetch_news(ticker, on_date)
+    except Exception as exc:
+        logger.warning(f"{ticker}: finlight fetch failed: {exc}")
+    else:
+        scored.extend(_score_finlight_articles(finlight_articles))
 
     try:
         filings = sec_fetcher.fetch_filings(ticker, on_date)

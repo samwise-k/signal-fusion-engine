@@ -90,20 +90,20 @@ notebooks/
 **Fetchers**
 - [x] Finnhub `news_fetcher` (`/company-news`, configurable lookback, env-keyed, raises clearly without `FINNHUB_KEY`)
 - [x] SEC EDGAR `sec_fetcher` (CIK lookup via `company_tickers.json`, 10-K/10-Q/8-K filter, 30-day default window, requires `SEC_EDGAR_USER_AGENT`)
-- [ ] finlight news fetcher _(awaiting `FINLIGHT_KEY`)_
+- [x] finlight news fetcher (`POST /v2/articles`, `X-API-KEY` header, TextBlob-scored; native `sentiment` field left as future upgrade)
 - [ ] Reddit PRAW fetcher _(awaiting OAuth credentials)_
 
 **Orchestration & persistence**
 - [x] `aggregate(ticker, on_date)` — combines Finnhub + EDGAR with per-source failure isolation
 - [x] `upsert_sentiment_daily` repo helper (insert-or-update on `(ticker, as_of)`)
 - [x] CLI: `run-sentiment --ticker SYM --date YYYY-MM-DD` creates DB on demand and persists rows
-- [x] Test suite (36 passing): scorer, rollup, item-code expansion, HTML-to-text + body-fetch cache, both fetchers, end-to-end aggregate (incl. failure isolation + body-feed verification), upsert
+- [x] Test suite (52 passing): scorer, rollup, item-code expansion, HTML-to-text + body-fetch cache, both fetchers, end-to-end aggregate (incl. failure isolation + body-feed verification), upsert
 
 **Open work**
 - [x] EDGAR signal quality: 8-K item-code → English map wired into aggregator
 - [x] EDGAR signal quality: filing-body fetch + HTML strip + 50k truncation + per-URL cache
 - [ ] EDGAR signal quality: MD&A section targeting for 10-K/10-Q (see Known limitations)
-- [ ] `sentiment_direction` + `sentiment_delta_7d` computed from history
+- [x] `sentiment_direction` + `sentiment_delta_7d` computed from history (pipeline anchors against the closest prior row within a 7-day window)
 - [ ] Watchlist seed + multi-ticker run path exercised live
 - [ ] FinBERT upgrade path (`sentiment-ml` dep group) — currently TextBlob only
 

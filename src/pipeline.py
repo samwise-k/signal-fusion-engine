@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import date as Date
+from datetime import timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -15,10 +16,10 @@ def run_sentiment(args: argparse.Namespace) -> int:
     load_dotenv()
 
     from src.config import load_watchlist
-    from src.engines.sentiment.aggregator import aggregate
+    from src.engines.sentiment.aggregator import aggregate, apply_history
     from src.storage.db import get_engine, get_session
     from src.storage.models import Base
-    from src.storage.sentiment_repo import upsert_sentiment_daily
+    from src.storage.sentiment_repo import get_score_near, upsert_sentiment_daily
 
     engine = get_engine()
     db_path = engine.url.database
@@ -46,6 +47,10 @@ def run_sentiment(args: argparse.Namespace) -> int:
             except Exception as exc:
                 logger.exception(f"{ticker}: aggregate failed: {exc}")
                 continue
+            prior_score = get_score_near(
+                session, ticker, on_date - timedelta(days=7), window_days=7
+            )
+            apply_history(payload, prior_score)
             upsert_sentiment_daily(session, payload)
             logger.info(
                 "{ticker} {date}: score={score} sources={sources}",

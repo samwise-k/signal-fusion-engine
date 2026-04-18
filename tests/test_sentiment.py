@@ -8,6 +8,7 @@ import pytest
 
 from src.engines.sentiment import (
     aggregator,
+    finlight_fetcher,
     news_fetcher,
     scorer,
     sec_fetcher,
@@ -17,6 +18,7 @@ from src.engines.sentiment import (
 # Capture the real body fetcher before the autouse stub replaces it, so tests
 # that need to exercise the actual function can restore it.
 _REAL_FETCH_FILING_BODY = sec_fetcher.fetch_filing_body
+_REAL_FINLIGHT_FETCH_NEWS = finlight_fetcher.fetch_news
 
 
 def test_sentiment_package_imports() -> None:
@@ -85,6 +87,42 @@ class TestWeightedRollup:
         out = aggregator.weighted_rollup(items, WEIGHTS)
         assert "twitter_unknown" not in out["source_breakdown"]
         assert out["sentiment_score"] == 0.5
+
+class TestApplyHistory:
+    def _payload(self, score: float) -> dict:
+        return {
+            "sentiment_score": score,
+            "sentiment_direction": "stable",
+            "sentiment_delta_7d": None,
+        }
+
+    def test_no_prior_keeps_stable_and_none(self) -> None:
+        out = aggregator.apply_history(self._payload(0.42), None)
+        assert out["sentiment_direction"] == "stable"
+        assert out["sentiment_delta_7d"] is None
+
+    def test_rising_above_threshold(self) -> None:
+        out = aggregator.apply_history(self._payload(0.30), 0.10)
+        assert out["sentiment_direction"] == "rising"
+        assert out["sentiment_delta_7d"] == pytest.approx(0.20)
+
+    def test_falling_below_threshold(self) -> None:
+        out = aggregator.apply_history(self._payload(-0.20), 0.10)
+        assert out["sentiment_direction"] == "falling"
+        assert out["sentiment_delta_7d"] == pytest.approx(-0.30)
+
+    def test_within_threshold_is_stable(self) -> None:
+        out = aggregator.apply_history(self._payload(0.12), 0.10)
+        assert out["sentiment_direction"] == "stable"
+        assert out["sentiment_delta_7d"] == pytest.approx(0.02)
+
+    def test_exact_threshold_is_stable(self) -> None:
+        # Equal to threshold (not strictly greater) should not flip direction.
+        out = aggregator.apply_history(
+            self._payload(0.10 + aggregator.DIRECTION_THRESHOLD), 0.10
+        )
+        assert out["sentiment_direction"] == "stable"
+
 
 FAKE_FINNHUB_ARTICLES = [
     {
@@ -228,6 +266,83 @@ class TestFetchNews:
         }
 
 
+FAKE_FINLIGHT_ARTICLES = [
+    {
+        "title": "LMT wins fantastic new contract, excellent growth ahead",
+        "summary": "Beat estimates across the board.",
+        "link": "https://example.com/fl1",
+        "source": "reuters.com",
+        "publishDate": "2026-04-16T10:00:00Z",
+        "sentiment": "positive",
+        "confidence": 0.92,
+    },
+    {
+        "title": "Disastrous quarter feared at defense prime",
+        "summary": "Awful guidance, terrible miss.",
+        "link": "https://example.com/fl2",
+        "source": "bloomberg.com",
+        "publishDate": "2026-04-16T11:00:00Z",
+        "sentiment": "negative",
+        "confidence": 0.88,
+    },
+]
+
+
+class TestFinlightFetchNews:
+    def test_missing_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(finlight_fetcher, "fetch_news", _REAL_FINLIGHT_FETCH_NEWS)
+        monkeypatch.delenv("FINLIGHT_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="FINLIGHT_KEY"):
+            finlight_fetcher.fetch_news("LMT", date(2026, 4, 17))
+
+    def test_posts_json_body_with_expected_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict = {}
+
+        class FakeResponse:
+            def raise_for_status(self) -> None: ...
+            def json(self) -> dict:
+                return {"status": "ok", "articles": FAKE_FINLIGHT_ARTICLES}
+
+        def fake_post(url: str, json: dict, headers: dict, timeout: float):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return FakeResponse()
+
+        monkeypatch.setattr(finlight_fetcher, "fetch_news", _REAL_FINLIGHT_FETCH_NEWS)
+        monkeypatch.setenv("FINLIGHT_KEY", "test-key")
+        monkeypatch.setattr(finlight_fetcher.httpx, "post", fake_post)
+
+        out = finlight_fetcher.fetch_news("LMT", date(2026, 4, 17), lookback_days=3)
+
+        assert out == FAKE_FINLIGHT_ARTICLES
+        assert captured["url"].endswith("/v2/articles")
+        assert captured["headers"]["X-API-KEY"] == "test-key"
+        assert captured["json"]["tickers"] == ["LMT"]
+        assert captured["json"]["from"] == "2026-04-15"
+        assert captured["json"]["to"] == "2026-04-17"
+        assert captured["json"]["language"] == "en"
+
+    def test_missing_articles_key_returns_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class FakeResponse:
+            def raise_for_status(self) -> None: ...
+            def json(self) -> dict:
+                return {"status": "ok"}
+
+        monkeypatch.setattr(finlight_fetcher, "fetch_news", _REAL_FINLIGHT_FETCH_NEWS)
+        monkeypatch.setenv("FINLIGHT_KEY", "test-key")
+        monkeypatch.setattr(
+            finlight_fetcher.httpx,
+            "post",
+            lambda *a, **kw: FakeResponse(),
+        )
+        assert finlight_fetcher.fetch_news("LMT", date(2026, 4, 17)) == []
+
+
 class TestAggregateEndToEnd:
     def test_aggregate_returns_full_schema(
         self, monkeypatch: pytest.MonkeyPatch
@@ -303,6 +418,48 @@ class TestAggregateEndToEnd:
         assert out["source_breakdown"]["sec_filings"]["count"] == len(
             FAKE_EDGAR_FILINGS
         )
+
+    def test_aggregates_finlight_articles(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            aggregator.news_fetcher, "fetch_news", lambda t, d: []
+        )
+        monkeypatch.setattr(
+            aggregator.sec_fetcher, "fetch_filings", lambda t, d: []
+        )
+        monkeypatch.setattr(
+            aggregator.finlight_fetcher,
+            "fetch_news",
+            lambda t, d: FAKE_FINLIGHT_ARTICLES,
+        )
+        out = aggregator.aggregate("LMT", date(2026, 4, 17), weights=WEIGHTS)
+        assert out["source_breakdown"]["news_finlight"]["count"] == len(
+            FAKE_FINLIGHT_ARTICLES
+        )
+        assert any(
+            h["url"] and h["url"].startswith("https://example.com/fl")
+            for h in out["notable_headlines"]
+        )
+
+    def test_finlight_failure_does_not_blank_briefing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(*a, **kw):
+            raise RuntimeError("finlight down")
+
+        monkeypatch.setattr(
+            aggregator.news_fetcher,
+            "fetch_news",
+            lambda t, d: FAKE_FINNHUB_ARTICLES,
+        )
+        monkeypatch.setattr(aggregator.finlight_fetcher, "fetch_news", boom)
+        monkeypatch.setattr(
+            aggregator.sec_fetcher, "fetch_filings", lambda t, d: []
+        )
+        out = aggregator.aggregate("LMT", date(2026, 4, 17), weights=WEIGHTS)
+        assert "news_finnhub" in out["source_breakdown"]
+        assert "news_finlight" not in out["source_breakdown"]
 
     def test_body_text_feeds_edgar_scoring(
         self, monkeypatch: pytest.MonkeyPatch
@@ -436,6 +593,15 @@ def _clear_edgar_caches():
     sec_fetcher._ticker_cik_map.cache_clear()
     sec_fetcher.fetch_filing_body.cache_clear()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _stub_finlight_fetch(monkeypatch: pytest.MonkeyPatch):
+    """Default: no-op finlight fetch so aggregator tests don't hit the network
+    or require FINLIGHT_KEY. Tests that want to exercise finlight override it."""
+    monkeypatch.setattr(
+        aggregator.finlight_fetcher, "fetch_news", lambda ticker, on_date: []
+    )
 
 
 @pytest.fixture(autouse=True)

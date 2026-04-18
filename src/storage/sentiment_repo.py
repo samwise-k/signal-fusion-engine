@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date as Date
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -45,3 +46,31 @@ def upsert_sentiment_daily(session: Session, payload: dict[str, Any]) -> Sentime
         row = existing
     session.commit()
     return row
+
+
+def get_score_near(
+    session: Session,
+    ticker: str,
+    target_date: Date,
+    *,
+    window_days: int = 7,
+) -> float | None:
+    """Return the sentiment_score of the most recent row whose ``as_of`` is
+    ``<= target_date`` and within ``window_days`` before it. ``None`` if no
+    such row exists.
+
+    Used to anchor the 7-day delta against the closest prior datapoint we
+    have, tolerating gaps from weekends, holidays, or skipped runs.
+    """
+    earliest = target_date - timedelta(days=window_days)
+    row = session.execute(
+        select(SentimentDaily)
+        .where(
+            SentimentDaily.ticker == ticker,
+            SentimentDaily.as_of <= target_date,
+            SentimentDaily.as_of >= earliest,
+        )
+        .order_by(SentimentDaily.as_of.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return row.sentiment_score if row is not None else None
