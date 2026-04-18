@@ -1,19 +1,18 @@
 # Source weights for the sentiment engine.
 #
-# The planning doc specifies that trade publications and SEC filings should be
-# weighted higher than social chatter. Tune these as observed performance evolves.
+# Higher weight = more influence on the daily rollup. Tune as observed
+# performance evolves. Keys must match the `source` field emitted by each
+# fetcher and consumed by aggregator.weighted_rollup.
 
 sentiment_weights:
-  sec_filings: 1.0      # Highest signal — regulatory filings carry material information
-  news_trade: 1.0       # Trade publications (Reuters, Bloomberg, sector-specific)
-  news_general: 0.7     # General finance news
+  sec_filings: 1.0      # SEC EDGAR — regulatory filings, highest signal
+  news_finnhub: 0.8     # Finnhub company news
+  news_finlight: 0.8    # finlight news API
   social_reddit: 0.4    # r/stocks, r/wallstreetbets, sector subs
-  social_twitter: 0.3   # Cashtag mentions
 
-# API endpoints and pagination limits can be configured here once wired up.
+# API endpoints / pagination knobs go here once fetchers are wired.
 # endpoints:
-#   newsapi:
-#     base: "https://newsapi.org/v2"
-#     page_size: 100
 #   finnhub:
 #     base: "https://finnhub.io/api/v1"
+#   finlight:
+#     base: "https://api.finlight.me"
