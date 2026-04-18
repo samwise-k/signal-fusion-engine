@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from datetime import date, timedelta
 from functools import lru_cache
+from html.parser import HTMLParser
 from typing import Any
 
 import httpx
@@ -15,6 +16,12 @@ EDGAR_ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data"
 DEFAULT_FORMS: tuple[str, ...] = ("10-K", "10-Q", "8-K")
 DEFAULT_LOOKBACK_DAYS = 30
 EDGAR_TIMEOUT = 20.0
+# 10-K/10-Q primary docs commonly exceed 1MB of HTML. We truncate post-strip
+# to bound TextBlob runtime and avoid a single long filing dominating the
+# per-day rollup. 50k chars ≈ ~8k words — enough of the front matter to pick
+# up MD&A-ish prose without drowning the scorer in risk-factor boilerplate.
+BODY_MAX_CHARS = 50_000
+_SKIP_TAGS = frozenset({"script", "style", "head", "title"})
 
 
 def _user_agent() -> str:
@@ -111,3 +118,46 @@ def fetch_filings(
             }
         )
     return out
+
+
+class _TextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.chunks: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _SKIP_TAGS:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _SKIP_TAGS and self._skip_depth:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip_depth:
+            self.chunks.append(data)
+
+
+def _html_to_text(html: str) -> str:
+    extractor = _TextExtractor()
+    extractor.feed(html)
+    return " ".join(" ".join(extractor.chunks).split())
+
+
+@lru_cache(maxsize=256)
+def fetch_filing_body(url: str) -> str:
+    """Fetch a filing's primary document and return truncated plain text.
+
+    Cached by URL (accession numbers are stable) so same-day reruns across
+    multiple tickers don't re-hit SEC. Returns ``""`` for a falsy URL.
+    """
+    if not url:
+        return ""
+    response = httpx.get(
+        url,
+        headers={"User-Agent": _user_agent()},
+        timeout=EDGAR_TIMEOUT,
+    )
+    response.raise_for_status()
+    return _html_to_text(response.text)[:BODY_MAX_CHARS]

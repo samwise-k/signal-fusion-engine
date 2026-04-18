@@ -14,6 +14,10 @@ from src.engines.sentiment import (
     sec_item_codes,
 )
 
+# Capture the real body fetcher before the autouse stub replaces it, so tests
+# that need to exercise the actual function can restore it.
+_REAL_FETCH_FILING_BODY = sec_fetcher.fetch_filing_body
+
 
 def test_sentiment_package_imports() -> None:
     from src.engines.sentiment import (  # noqa: F401
@@ -102,6 +106,62 @@ FAKE_FINNHUB_ARTICLES = [
         "source": "Unknown",
     },
 ]
+
+
+class TestHtmlToText:
+    def test_strips_tags_and_collapses_whitespace(self) -> None:
+        html = "<html><body><p>Hello  <b>world</b>.</p>\n\n<p>Next.</p></body></html>"
+        assert sec_fetcher._html_to_text(html) == "Hello world . Next."
+
+    def test_drops_script_and_style(self) -> None:
+        html = (
+            "<html><head><style>body{}</style></head>"
+            "<body>Keep.<script>var x = 1;</script> Done.</body></html>"
+        )
+        out = sec_fetcher._html_to_text(html)
+        assert "Keep" in out and "Done" in out
+        assert "var x" not in out and "body{}" not in out
+
+
+class TestFetchFilingBody:
+    def test_empty_url_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(sec_fetcher, "fetch_filing_body", _REAL_FETCH_FILING_BODY)
+        assert sec_fetcher.fetch_filing_body("") == ""
+
+    def test_fetches_strips_and_truncates(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sec_fetcher, "fetch_filing_body", _REAL_FETCH_FILING_BODY)
+        monkeypatch.setenv("SEC_EDGAR_USER_AGENT", "sfe-test/0.1 (test@example.com)")
+        big_body = "excellent " * 10_000  # 100k chars after HTML wrap
+
+        class FakeResp:
+            text = f"<html><body>{big_body}</body></html>"
+            def raise_for_status(self) -> None: ...
+
+        monkeypatch.setattr(sec_fetcher.httpx, "get", lambda *a, **kw: FakeResp())
+        out = sec_fetcher.fetch_filing_body("https://sec.gov/fake.htm")
+        assert len(out) == sec_fetcher.BODY_MAX_CHARS
+        assert "excellent" in out
+
+    def test_caches_by_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(sec_fetcher, "fetch_filing_body", _REAL_FETCH_FILING_BODY)
+        monkeypatch.setenv("SEC_EDGAR_USER_AGENT", "sfe-test/0.1 (test@example.com)")
+        calls = {"n": 0}
+
+        class FakeResp:
+            text = "<p>once</p>"
+            def raise_for_status(self) -> None: ...
+
+        def fake_get(*a, **kw):
+            calls["n"] += 1
+            return FakeResp()
+
+        monkeypatch.setattr(sec_fetcher.httpx, "get", fake_get)
+        url = "https://sec.gov/cached.htm"
+        sec_fetcher.fetch_filing_body(url)
+        sec_fetcher.fetch_filing_body(url)
+        assert calls["n"] == 1
 
 
 class TestExpandItemCodes:
@@ -244,6 +304,69 @@ class TestAggregateEndToEnd:
             FAKE_EDGAR_FILINGS
         )
 
+    def test_body_text_feeds_edgar_scoring(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Proves the body-fetch plumbing is wired: a positive body yields a
+        positive score; a negative body yields a negative score, on the same
+        10-Q filing whose items/description alone would score ~0."""
+        filing = [
+            {
+                "form": "10-Q",
+                "filed_date": "2026-04-10",
+                "accession_number": "0000936468-26-000099",
+                "primary_doc_description": "Quarterly report",
+                "items": "",
+                "url": "https://sec.gov/fake-10q.htm",
+            }
+        ]
+        monkeypatch.setattr(
+            aggregator.news_fetcher, "fetch_news", lambda t, d: []
+        )
+        monkeypatch.setattr(
+            aggregator.sec_fetcher, "fetch_filings", lambda t, d: filing
+        )
+
+        monkeypatch.setattr(
+            aggregator.sec_fetcher,
+            "fetch_filing_body",
+            lambda url: "Excellent results, fantastic growth, beat estimates.",
+        )
+        pos = aggregator.aggregate("LMT", date(2026, 4, 17), weights=WEIGHTS)
+
+        monkeypatch.setattr(
+            aggregator.sec_fetcher,
+            "fetch_filing_body",
+            lambda url: "Terrible miss, awful guidance, disastrous quarter.",
+        )
+        neg = aggregator.aggregate("LMT", date(2026, 4, 17), weights=WEIGHTS)
+
+        assert pos["sentiment_score"] > 0.2
+        assert neg["sentiment_score"] < -0.2
+
+    def test_body_fetch_failure_falls_back_to_metadata(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(url: str) -> str:
+            raise RuntimeError("SEC down")
+
+        monkeypatch.setattr(
+            aggregator.news_fetcher, "fetch_news", lambda t, d: []
+        )
+        monkeypatch.setattr(
+            aggregator.sec_fetcher,
+            "fetch_filings",
+            lambda t, d: FAKE_EDGAR_FILINGS,
+        )
+        monkeypatch.setattr(aggregator.sec_fetcher, "fetch_filing_body", boom)
+
+        out = aggregator.aggregate("LMT", date(2026, 4, 17), weights=WEIGHTS)
+        # Filings still aggregate via item-code + metadata expansion.
+        assert out["source_breakdown"]["sec_filings"]["count"] == len(
+            FAKE_EDGAR_FILINGS
+        )
+
+
 FAKE_EDGAR_FILINGS = [
     {
         "form": "8-K",
@@ -307,10 +430,20 @@ FAKE_SUBMISSIONS_JSON = {
 
 
 @pytest.fixture(autouse=True)
-def _clear_edgar_cik_cache():
+def _clear_edgar_caches():
+    # Only clear at setup — monkeypatch may have replaced these attributes by
+    # teardown, so calling cache_clear post-yield can hit a bare function.
     sec_fetcher._ticker_cik_map.cache_clear()
+    sec_fetcher.fetch_filing_body.cache_clear()
     yield
-    sec_fetcher._ticker_cik_map.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _stub_edgar_body_fetch(monkeypatch: pytest.MonkeyPatch):
+    """Default: no-op body fetch so aggregator tests don't hit the network.
+    Tests that want to exercise body fetching override this.
+    """
+    monkeypatch.setattr(sec_fetcher, "fetch_filing_body", lambda url: "")
 
 
 class _FakeResponse:

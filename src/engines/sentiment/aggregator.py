@@ -79,7 +79,16 @@ def _score_edgar_filings(filings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # titles so TextBlob has real tokens to score. Without this, the
         # scorer sees just numeric codes and returns ~0.0.
         items_en = sec_item_codes.expand_items(items)
-        text = ". ".join(part for part in (items_en, desc, form) if part)
+        # Best-effort body fetch — gives 10-K/10-Q actual prose to score.
+        # Isolated per-filing so one flaky doc doesn't blank the batch.
+        url = f.get("url") or ""
+        body = ""
+        if url:
+            try:
+                body = sec_fetcher.fetch_filing_body(url)
+            except Exception as exc:
+                logger.warning(f"EDGAR body fetch failed for {url}: {exc}")
+        text = ". ".join(part for part in (items_en, desc, form, body) if part)
         headline = f"{form} filed {f.get('filed_date', '')}".strip()
         if items:
             headline = f"{headline} — items {items}"
