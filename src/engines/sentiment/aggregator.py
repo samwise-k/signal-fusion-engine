@@ -59,50 +59,44 @@ def weighted_rollup(
 
 
 def _score_finnhub_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    scored: list[dict[str, Any]] = []
+    texts: list[str] = []
+    meta: list[dict[str, Any]] = []
     for art in articles:
         headline = art.get("headline") or ""
         summary = art.get("summary") or ""
-        text = f"{headline}. {summary}".strip(". ")
-        scored.append(
-            {
-                "source": "news_finnhub",
-                "score": scorer.score_text(text),
-                "headline": headline,
-                "url": art.get("url"),
-                "publisher": art.get("source"),
-            }
-        )
-    return scored
+        texts.append(f"{headline}. {summary}".strip(". "))
+        meta.append({"headline": headline, "url": art.get("url"), "publisher": art.get("source")})
+    scores = scorer.score_texts(texts)
+    return [
+        {"source": "news_finnhub", "score": s, **m}
+        for s, m in zip(scores, meta)
+    ]
 
 
 def _score_finlight_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    scored: list[dict[str, Any]] = []
+    texts: list[str] = []
+    meta: list[dict[str, Any]] = []
     for art in articles:
         title = art.get("title") or ""
         summary = art.get("summary") or ""
-        text = f"{title}. {summary}".strip(". ")
-        scored.append(
-            {
-                "source": "news_finlight",
-                "score": scorer.score_text(text),
-                "headline": title,
-                "url": art.get("link"),
-                "publisher": art.get("source"),
-            }
-        )
-    return scored
+        texts.append(f"{title}. {summary}".strip(". "))
+        meta.append({"headline": title, "url": art.get("link"), "publisher": art.get("source")})
+    scores = scorer.score_texts(texts)
+    return [
+        {"source": "news_finlight", "score": s, **m}
+        for s, m in zip(scores, meta)
+    ]
 
 
 def _score_edgar_filings(filings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    scored: list[dict[str, Any]] = []
+    texts: list[str] = []
+    meta: list[dict[str, Any]] = []
     for f in filings:
         form = f.get("form") or ""
         items = f.get("items") or ""
         desc = f.get("primary_doc_description") or ""
         # Expand 8-K item codes (e.g. "2.02,7.01") into their SEC English
-        # titles so TextBlob has real tokens to score. Without this, the
-        # scorer sees just numeric codes and returns ~0.0.
+        # titles so the scorer sees real tokens, not numeric codes.
         items_en = sec_item_codes.expand_items(items)
         # Best-effort body fetch — gives 10-K/10-Q actual prose to score.
         # Isolated per-filing so one flaky doc doesn't blank the batch.
@@ -113,20 +107,16 @@ def _score_edgar_filings(filings: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 body = sec_fetcher.fetch_filing_body(url)
             except Exception as exc:
                 logger.warning(f"EDGAR body fetch failed for {url}: {exc}")
-        text = ". ".join(part for part in (items_en, desc, form, body) if part)
+        texts.append(". ".join(part for part in (items_en, desc, form, body) if part))
         headline = f"{form} filed {f.get('filed_date', '')}".strip()
         if items:
             headline = f"{headline} — items {items}"
-        scored.append(
-            {
-                "source": "sec_filings",
-                "score": scorer.score_text(text),
-                "headline": headline,
-                "url": f.get("url"),
-                "publisher": "SEC EDGAR",
-            }
-        )
-    return scored
+        meta.append({"headline": headline, "url": f.get("url"), "publisher": "SEC EDGAR"})
+    scores = scorer.score_texts(texts)
+    return [
+        {"source": "sec_filings", "score": s, **m}
+        for s, m in zip(scores, meta)
+    ]
 
 
 def _pick_notable(scored: list[dict[str, Any]]) -> list[dict[str, Any]]:

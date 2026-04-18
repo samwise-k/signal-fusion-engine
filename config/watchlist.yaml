@@ -1,15 +1,50 @@
 # Watchlist for the Signal Fusion Engine.
 #
-# Fill in 10-15 tickers across 2-3 sectors you actively follow.
-# Each entry should follow the schema below.
-#
-# Example (uncomment and edit):
-# tickers:
-#   - ticker: LMT
-#     sector: industrials
-#     notes: "primary defense prime"
-#   - ticker: RTX
-#     sector: industrials
-#     notes: ""
+# Seeded with the top ~15 S&P 500 constituents by market cap.
 
-tickers: []
+tickers:
+  - ticker: NVDA
+    sector: technology
+    notes: "AI/GPU bellwether"
+  - ticker: MSFT
+    sector: technology
+    notes: ""
+  - ticker: AAPL
+    sector: technology
+    notes: ""
+  - ticker: GOOGL
+    sector: communication-services
+    notes: "Alphabet class A"
+  - ticker: AMZN
+    sector: consumer-discretionary
+    notes: ""
+  - ticker: META
+    sector: communication-services
+    notes: ""
+  - ticker: AVGO
+    sector: technology
+    notes: "Broadcom"
+  - ticker: TSLA
+    sector: consumer-discretionary
+    notes: ""
+  - ticker: "BRK-B"
+    sector: financials
+    notes: "Berkshire Hathaway class B"
+  - ticker: JPM
+    sector: financials
+    notes: ""
+  - ticker: LLY
+    sector: healthcare
+    notes: "Eli Lilly"
+  - ticker: WMT
+    sector: consumer-staples
+    notes: ""
+  - ticker: V
+    sector: financials
+    notes: "Visa"
+  - ticker: XOM
+    sector: energy
+    notes: "ExxonMobil"
+  - ticker: MA
+    sector: financials
+    notes: "Mastercard"
