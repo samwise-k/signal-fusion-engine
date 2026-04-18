@@ -8,7 +8,7 @@ from typing import Any
 
 from loguru import logger
 
-from src.engines.sentiment import news_fetcher, scorer, sec_fetcher
+from src.engines.sentiment import news_fetcher, scorer, sec_fetcher, sec_item_codes
 
 NOTABLE_HEADLINE_LIMIT = 3
 
@@ -75,9 +75,11 @@ def _score_edgar_filings(filings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         form = f.get("form") or ""
         items = f.get("items") or ""
         desc = f.get("primary_doc_description") or ""
-        # Items text (e.g. "2.02,7.01" for an 8-K) carries the most signal of
-        # what the filing is about; description and form add minor context.
-        text = " ".join(part for part in (items, desc, form) if part)
+        # Expand 8-K item codes (e.g. "2.02,7.01") into their SEC English
+        # titles so TextBlob has real tokens to score. Without this, the
+        # scorer sees just numeric codes and returns ~0.0.
+        items_en = sec_item_codes.expand_items(items)
+        text = ". ".join(part for part in (items_en, desc, form) if part)
         headline = f"{form} filed {f.get('filed_date', '')}".strip()
         if items:
             headline = f"{headline} — items {items}"

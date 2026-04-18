@@ -6,7 +6,13 @@ from datetime import date
 
 import pytest
 
-from src.engines.sentiment import aggregator, news_fetcher, scorer, sec_fetcher
+from src.engines.sentiment import (
+    aggregator,
+    news_fetcher,
+    scorer,
+    sec_fetcher,
+    sec_item_codes,
+)
 
 
 def test_sentiment_package_imports() -> None:
@@ -96,6 +102,34 @@ FAKE_FINNHUB_ARTICLES = [
         "source": "Unknown",
     },
 ]
+
+
+class TestExpandItemCodes:
+    def test_empty_input_is_empty(self) -> None:
+        assert sec_item_codes.expand_items("") == ""
+
+    def test_expands_known_codes(self) -> None:
+        out = sec_item_codes.expand_items("2.02,7.01")
+        assert "Results of Operations" in out
+        assert "Regulation FD" in out
+
+    def test_tolerates_whitespace(self) -> None:
+        assert sec_item_codes.expand_items("2.02, 7.01") == sec_item_codes.expand_items(
+            "2.02,7.01"
+        )
+
+    def test_drops_unknown_codes(self) -> None:
+        out = sec_item_codes.expand_items("2.02,9.99")
+        assert "Results of Operations" in out
+        assert "9.99" not in out
+
+    def test_every_code_expands_to_non_empty_english(self) -> None:
+        # The whole point: every mapped code produces text TextBlob can parse,
+        # even if the resulting score is neutral for descriptor-only titles.
+        for code, title in sec_item_codes.ITEM_CODE_TITLES.items():
+            expanded = sec_item_codes.expand_items(code)
+            assert expanded == title
+            assert any(c.isalpha() for c in expanded)
 
 
 class TestFetchNews:
