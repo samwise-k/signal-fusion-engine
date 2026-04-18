@@ -2,7 +2,7 @@
 
 Personal trading decision-support tool. Fuses sentiment, quantitative, and enrichment signals through a Claude-powered meta-layer into a daily pre-market briefing.
 
-**Status:** Phase 1 feature-complete (bar deferred MD&A targeting) — Finnhub + finlight + SEC EDGAR wired end-to-end through the `run-sentiment` CLI into SQLite, 15-ticker S&P megacap watchlist seeded, FinBERT backend available via `SENTIMENT_SCORER=finbert` (TextBlob is the default).
+**Status:** Phase 1 + Phase 2 + Phase 3 starting slices live. Phase 4 meta-synthesis starting slice live as of 2026-04-18 — payload builder queries the three engine tables, Anthropic Claude (`claude-opus-4-7`, adaptive thinking, cached system prompt) synthesizes a markdown briefing printed to stdout via `run-meta`. Email/Slack delivery deferred to Phase 5. Short interest / congressional / options flow / FOMC macro events also deferred to Phase 5. GBT model (Phase 2) deferred.
 
 Source of truth for architecture: `~/Documents/Obsidian Vault/Obsidian Vault/Project Ideas/Signal-Fusion-Tool.md`.
 
@@ -64,11 +64,11 @@ notebooks/
 ## Phase status
 
 - [x] Phase 0 — skeleton
-- [ ] Phase 1 — sentiment engine MVP _(in progress)_
-- [ ] Phase 2 — quantitative engine MVP
-- [ ] Phase 3 — enrichment signals
-- [ ] Phase 4 — meta-synthesis layer
-- [ ] Phase 5 — polish, dashboard, backtesting
+- [x] Phase 1 — sentiment engine MVP
+- [ ] Phase 2 — quantitative engine MVP _(starting slice live; GBT deferred to Phase 5)_
+- [ ] Phase 3 — enrichment signals _(starting slice live; short interest / congressional / options / macro deferred to Phase 5)_
+- [ ] Phase 4 — meta-synthesis layer _(starting slice live; delivery deferred to Phase 5)_
+- [ ] Phase 5 — polish, dashboard, backtesting, delivery, GBT, deferred enrichment
 
 ## Task tracker
 
@@ -107,8 +107,37 @@ notebooks/
 - [x] Watchlist seed + multi-ticker run path exercised live
 - [x] FinBERT upgrade path (`sentiment-ml` dep group) — `SENTIMENT_SCORER=finbert` switches scorer; TextBlob remains default
 
-### Phases 2–5
-- [ ] Phase 2 — quantitative engine (yfinance, technicals, ML health score)
-- [ ] Phase 3 — enrichment signals (insider trades, earnings calendar, short interest, FOMC/CPI dates)
-- [ ] Phase 4 — meta-synthesis layer (payload builder, Claude API, briefing formatter, delivery)
-- [ ] Phase 5 — polish, Streamlit dashboard, backtesting framework
+### Phase 2 — quantitative engine MVP
+- [x] yfinance OHLCV fetcher (`price_fetcher.fetch_ohlcv`, 300-day default lookback)
+- [x] Technicals (`compute_indicators`): RSI-14, SMA-50/200 position, MACD signal, 1/5/20-day returns, volume-vs-20d-avg
+- [x] Sector-relative 5-day return vs SPDR ETF (mapping from `watchlist.yaml` sector field → XLK/XLC/...); degrades to null on ETF fetch failure
+- [x] Rule-based `predict_health` (strong / neutral / weak) — placeholder until GBT trains
+- [x] `QuantDaily` schema with `(ticker, as_of)` uniqueness + `upsert_quant_daily` repo helper
+- [x] CLI: `run-quant --ticker SYM --date YYYY-MM-DD` (watchlist run when `--ticker` omitted)
+- [x] Test suite: technicals (empty/short/rising/falling/volume/sort), rule-based model, aggregator (happy + degraded + no-data + unknown-sector), repo upsert
+- [ ] GBT technical-health model (xgboost) — train once enough daily scorecards accumulate
+
+### Phase 3 — enrichment signals
+- [x] Insider trades via Finnhub `/stock/insider-transactions` — P/S codes drive net sentiment (bullish/bearish/neutral), other codes listed but not counted
+- [x] Earnings calendar via Finnhub `/calendar/earnings` — soonest upcoming + `days_until`
+- [x] Analyst revisions via Finnhub `/stock/recommendation` — month-over-month bull-score delta → upgrade/downgrade/stable
+- [x] `EnrichmentDaily` schema + `upsert_enrichment_daily` repo helper
+- [x] CLI: `run-enrichment --ticker SYM --date YYYY-MM-DD` (watchlist run when `--ticker` omitted)
+- [x] Test suite: per-source summarizers (insider/earnings/analyst) + aggregator (happy / full failure / partial failure) + repo upsert
+- [ ] Short interest (FINRA bimonthly file) — Phase 5
+- [ ] Congressional trades (Quiver Quant free tier, 45-day lag) — Phase 5
+- [ ] Options flow (Unusual Whales, paid) — Phase 5
+- [ ] FOMC/CPI macro calendar (hardcoded near-term or FRED) — Phase 5
+
+### Phase 4 — meta-synthesis layer
+- [x] `payload_builder.build_payload` — pulls latest `SentimentDaily` + `QuantDaily` + `EnrichmentDaily` per watchlist ticker (rows with `as_of <= on_date`; null when missing)
+- [x] `prompts/daily_briefing.txt` — static system prompt (convergence/divergence rules, output markdown structure), cached via `cache_control: ephemeral`
+- [x] `llm_client.generate_briefing` — Anthropic SDK, `claude-opus-4-7`, adaptive thinking, streamed via `messages.stream` + `get_final_message`, `max_tokens=16000`
+- [x] `formatter.format_briefing` — strip + prepend header if model omitted it
+- [x] CLI: `run-meta --ticker SYM --date YYYY-MM-DD` (watchlist run when `--ticker` omitted); prints briefing to stdout
+- [x] Test suite (11 meta tests): payload builder (missing data, all-three-present, latest-prior, future excluded) + formatter + smoke imports
+- [ ] Email/Slack delivery — Phase 5
+- [ ] Broad market context block (SPY/QQQ/VIX, upcoming FOMC/CPI) — Phase 5
+
+### Phase 5 — polish
+- [ ] Streamlit dashboard, backtesting, GBT model, deferred enrichment sources, delivery

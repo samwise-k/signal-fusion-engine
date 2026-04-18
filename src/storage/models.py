@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Float, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -38,14 +48,44 @@ class SentimentDaily(Base):
 
 
 class QuantDaily(Base):
-    """Per-ticker daily quantitative scorecard. Columns filled in Phase 2."""
+    """Per-ticker daily quantitative scorecard (Phase 2)."""
 
     __tablename__ = "quant_daily"
+    __table_args__ = (UniqueConstraint("ticker", "as_of", name="uq_quant_ticker_date"),)
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(10), index=True)
+    as_of: Mapped[date] = mapped_column(Date, index=True)
+    close: Mapped[float | None] = mapped_column(Float, nullable=True)
+    change_1d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    change_5d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    change_20d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rsi_14: Mapped[float | None] = mapped_column(Float, nullable=True)
+    above_50sma: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    above_200sma: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    macd_signal: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    volume_vs_20d_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sector_etf: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    relative_return_5d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    health_score: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class EnrichmentDaily(Base):
-    """Per-ticker daily enrichment signals. Columns filled in Phase 3."""
+    """Per-ticker daily enrichment signals (Phase 3)."""
 
     __tablename__ = "enrichment_daily"
+    __table_args__ = (UniqueConstraint("ticker", "as_of", name="uq_enrichment_ticker_date"),)
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(10), index=True)
+    as_of: Mapped[date] = mapped_column(Date, index=True)
+    insider_trades: Mapped[dict] = mapped_column(JSON, default=dict)
+    next_earnings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    upcoming_events: Mapped[list] = mapped_column(JSON, default=list)
+    analyst_activity: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
