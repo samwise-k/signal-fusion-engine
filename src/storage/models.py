@@ -12,6 +12,7 @@ from sqlalchemy import (
     Float,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -86,6 +87,28 @@ class EnrichmentDaily(Base):
     next_earnings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     upcoming_events: Mapped[list] = mapped_column(JSON, default=list)
     analyst_activity: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class BriefingDaily(Base):
+    """Cached meta-layer briefing output (Phase 5).
+
+    One row per briefing date. ``payload`` stores the exact JSON sent to
+    Claude so a briefing can be regenerated or inspected later without
+    re-querying the engine tables.
+    """
+
+    __tablename__ = "briefing_daily"
+    __table_args__ = (UniqueConstraint("as_of", name="uq_briefing_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    as_of: Mapped[date] = mapped_column(Date, index=True)
+    tickers: Mapped[list] = mapped_column(JSON, default=list)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    briefing_markdown: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

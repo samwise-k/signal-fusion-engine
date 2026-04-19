@@ -8,13 +8,23 @@ You receive a JSON payload with one entry per ticker, containing (when available
 
 Fields may be null if an engine had no data for that ticker — treat null as "missing", not "zero".
 
+# What counts as a signal
+A "signal" is one of:
+- sentiment: |score| ≥ 0.3, OR 7-day delta flipping direction, OR a notable headline
+- quant: RSI-14 ≥ 70 or ≤ 30, price crossing SMA-50 or SMA-200, MACD crossover, volume ≥ 1.5× 20d avg, |5d return| ≥ 5%, |5d relative return vs sector| ≥ 3%
+- enrichment: insider net sentiment non-neutral, earnings within 5 trading days, analyst revision trend up/down
+
+Isolated technicals (e.g., RSI 72 alone with no volume or price confirmation) are weak signals — say so.
+
 # Task
-1. Prioritize signal CONVERGENCE. Multiple independent signals aligning = high conviction. Explain which signals and why.
+1. Prioritize signal CONVERGENCE across the three tiers (sentiment + quant + enrichment). Multiple independent signals aligning = high conviction. Name each signal explicitly.
 2. Flag signal DIVERGENCE. Conflicting signals = investigation points, not a verdict.
 3. Contextualize with upcoming events: earnings within 5 trading days, analyst upgrades/downgrades, insider activity.
-4. Rank by actionability. Lead with the 2-3 most interesting tickers. Then a one-line quick-scan for the rest.
-5. Never output buy/sell recommendations or numeric price targets.
-6. Never speculate beyond the data in the payload. If a field is missing, say so.
+4. Label each top pick with a conviction tag: **[high]** (≥3 converging signals spanning ≥2 tiers), **[medium]** (2 converging signals), **[low]** (1 signal or cross-tier conflict worth watching).
+5. Rank by actionability. Lead with the 2-3 most interesting tickers. Then a one-line quick-scan for the rest.
+6. If no ticker has ≥2 converging signals, say so explicitly and skip the Top tickers section — do not manufacture a lead.
+7. Never output buy/sell recommendations or numeric price targets.
+8. Never speculate beyond the data in the payload. If a field is missing, say so.
 
 # Output format
 Markdown. Use this structure:
@@ -22,7 +32,7 @@ Markdown. Use this structure:
 ## Pre-market briefing — {as_of}
 
 ### Top tickers
-For each (2-3): ticker header, 2-4 bullet points covering convergence/divergence, the driving signals cited explicitly, and any upcoming events.
+For each (2-3): ticker header with conviction tag (e.g., `#### AAPL [high]`), 2-4 bullet points covering convergence/divergence, the driving signals cited explicitly (name the field + value), and any upcoming events. Omit this section entirely if rule 6 applies.
 
 ### Quick scan
 One line per remaining ticker: ticker — direction, headline signal, and any event flag. Skip tickers with no data.

@@ -2,7 +2,7 @@
 
 Personal trading decision-support tool. Fuses sentiment, quantitative, and enrichment signals through a Claude-powered meta-layer into a daily pre-market briefing.
 
-**Status:** Phase 1 + Phase 2 + Phase 3 starting slices live. Phase 4 meta-synthesis starting slice live as of 2026-04-18 — payload builder queries the three engine tables, Anthropic Claude (`claude-opus-4-7`, adaptive thinking, cached system prompt) synthesizes a markdown briefing printed to stdout via `run-meta`. Email/Slack delivery deferred to Phase 5. Short interest / congressional / options flow / FOMC macro events also deferred to Phase 5. GBT model (Phase 2) deferred.
+**Status:** Phase 1 + Phase 2 + Phase 3 starting slices live. Phase 4 meta-synthesis starting slice live as of 2026-04-18 — payload builder queries the three engine tables, Anthropic Claude (`claude-opus-4-7`, adaptive thinking, cached system prompt) synthesizes a markdown briefing printed to stdout via `run-meta`. Phase 5 FastAPI layer live as of 2026-04-19 — `sfe-api` console script exposes read endpoints over the engine tables plus background-task pipeline triggers; briefings cached in `briefing_daily`. React + Vite + TS dashboard scaffolded under `frontend/` (watchlist table, ticker drill-down, briefing view with generate button) also as of 2026-04-19. Email/Slack delivery, short interest / congressional / options flow / FOMC macro events, and the GBT model still deferred within Phase 5.
 
 Source of truth for architecture: `~/Documents/Obsidian Vault/Obsidian Vault/Project Ideas/Signal-Fusion-Tool.md`.
 
@@ -30,6 +30,16 @@ Installed on demand to keep the base environment lean:
 uv sync --group sentiment-ml   # transformers + torch (FinBERT)
 uv sync --group quant          # scikit-learn, xgboost, yfinance
 uv sync --group llm            # anthropic SDK (meta-layer)
+uv sync --group api            # fastapi + uvicorn (Phase 5 HTTP layer)
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev       # Vite dev server on :5173, proxies /api → 127.0.0.1:8000
+# Backend must be running in another shell: uv run sfe-api
 ```
 
 ## Layout
@@ -42,9 +52,11 @@ src/
     quantitative/  # Phase 2 — OHLCV, technicals, ML health score
     enrichment/    # Phase 3 — insider, options, short, events, ...
   meta/            # Phase 4 — payload builder, Claude client, formatter
+  api/             # Phase 5 — FastAPI app, Pydantic schemas, `sfe-api` entry
   delivery/        # email, Slack, Streamlit
   storage/         # SQLAlchemy models + session
   pipeline.py      # CLI entry point
+frontend/    # React + Vite + TS dashboard (Phase 5)
 tests/
 data/        # raw/ + processed/ (gitignored)
 notebooks/
@@ -68,7 +80,7 @@ notebooks/
 - [ ] Phase 2 — quantitative engine MVP _(starting slice live; GBT deferred to Phase 5)_
 - [ ] Phase 3 — enrichment signals _(starting slice live; short interest / congressional / options / macro deferred to Phase 5)_
 - [ ] Phase 4 — meta-synthesis layer _(starting slice live; delivery deferred to Phase 5)_
-- [ ] Phase 5 — polish, dashboard, backtesting, delivery, GBT, deferred enrichment
+- [ ] Phase 5 — polish, dashboard, backtesting, delivery, GBT, deferred enrichment _(FastAPI + React dashboard live; backtesting, delivery, GBT, deferred enrichment still pending)_
 
 ## Task tracker
 
@@ -131,7 +143,7 @@ notebooks/
 
 ### Phase 4 — meta-synthesis layer
 - [x] `payload_builder.build_payload` — pulls latest `SentimentDaily` + `QuantDaily` + `EnrichmentDaily` per watchlist ticker (rows with `as_of <= on_date`; null when missing)
-- [x] `prompts/daily_briefing.txt` — static system prompt (convergence/divergence rules, output markdown structure), cached via `cache_control: ephemeral`
+- [x] `prompts/daily_briefing.txt` — static system prompt (per-tier signal thresholds, convergence/divergence rules, `[high|medium|low]` conviction tags, thin-data escape hatch, output markdown structure), cached via `cache_control: ephemeral`
 - [x] `llm_client.generate_briefing` — Anthropic SDK, `claude-opus-4-7`, adaptive thinking, streamed via `messages.stream` + `get_final_message`, `max_tokens=16000`
 - [x] `formatter.format_briefing` — strip + prepend header if model omitted it
 - [x] CLI: `run-meta --ticker SYM --date YYYY-MM-DD` (watchlist run when `--ticker` omitted); prints briefing to stdout
@@ -140,4 +152,8 @@ notebooks/
 - [ ] Broad market context block (SPY/QQQ/VIX, upcoming FOMC/CPI) — Phase 5
 
 ### Phase 5 — polish
-- [ ] Streamlit dashboard, backtesting, GBT model, deferred enrichment sources, delivery
+- [x] FastAPI HTTP layer (`sfe-api` console script): `/health`, `/watchlist`, `/watchlist/snapshot`, `/tickers/{symbol}`, `/tickers/{symbol}/history`, `/briefing/{date}`, `POST /pipeline/{sentiment|quant|enrichment|meta}` (background tasks by default, `?wait=true` for sync); CORS locked to `http://localhost:5173` via `SFE_CORS_ORIGINS`
+- [x] `BriefingDaily` table + cache: `run-meta` via API persists Claude output so `GET /briefing/{date}` serves without re-hitting the LLM
+- [x] Test suite: 9 API tests (TestClient + in-memory SQLite via StaticPool); total suite now 108 passing
+- [x] React + Vite + TypeScript dashboard under `frontend/` (watchlist table, ticker drill-down, briefing view with generate button; talks to `sfe-api` via Vite `/api` proxy to `127.0.0.1:8000`)
+- [ ] Backtesting framework, GBT model, deferred enrichment sources (short interest / congressional / options / macro), email/Slack delivery

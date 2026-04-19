@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 sfe = "src.pipeline:main"
+sfe-api = "src.api.main:serve"
 
 [dependency-groups]
 dev = [
@@ -34,6 +35,11 @@ quant = [
 ]
 llm = [
     "anthropic>=0.40",
+]
+api = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.8",
 ]
 
 [tool.uv]
