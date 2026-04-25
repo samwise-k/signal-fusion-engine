@@ -43,7 +43,7 @@ Shipped with earnings engine PR. `_bootstrap_db()`, `_parse_date()`, `_resolve_t
 Captured from a whole-project review (2026-04-19); not yet scheduled. Ordered within each engine by rough signal-quality impact.
 
 ### Sentiment
-- Promote FinBERT to default scorer; retire TextBlob after spot-checking a week of rows. Single biggest quality lever.
+- ~~Promote FinBERT to default scorer; retire TextBlob after spot-checking a week of rows.~~ DONE (2026-04-25). FinBERT is now default; TextBlob is fallback when sentiment-ml deps missing.
 - Split `sec_filings` weight into `sec_8k` vs `sec_periodic` (8-Ks carry more event signal than 10-K/10-Q front matter). Cheaper than MD&A section parsing.
 - Dedup Finnhub + finlight articles before `weighted_rollup` (hash on normalized title + publisher) so wire-service reprints don't double-count.
 - Either populate `key_topics` (top TF-IDF tokens across the day's headlines) or remove the field from the schema and prompt.

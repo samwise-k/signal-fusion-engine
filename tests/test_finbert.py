@@ -3,7 +3,7 @@
 These hit the real ProsusAI/finbert model on first run (downloads weights),
 so they're kept out of the default suite to preserve its speed. Run with:
 
-    SENTIMENT_SCORER=finbert uv run --group sentiment-ml pytest tests/test_finbert.py
+    uv run --group sentiment-ml pytest tests/test_finbert.py
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture(autouse=True)
-def _force_finbert(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SENTIMENT_SCORER", "finbert")
+def _ensure_finbert(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SENTIMENT_SCORER", raising=False)
 
 
 def test_positive_finance_text_scores_positive() -> None:

@@ -222,8 +222,7 @@ class TestExpandItemCodes:
         assert "9.99" not in out
 
     def test_every_code_expands_to_non_empty_english(self) -> None:
-        # The whole point: every mapped code produces text TextBlob can parse,
-        # even if the resulting score is neutral for descriptor-only titles.
+        # Every mapped code produces parseable text regardless of backend.
         for code, title in sec_item_codes.ITEM_CODE_TITLES.items():
             expanded = sec_item_codes.expand_items(code)
             assert expanded == title

@@ -180,4 +180,4 @@ This is a personal research tool, not a financial product. It does not provide i
 
 - **EDGAR signal quality.** 10-K/10-Q filings are scored uniformly. Risk-factor boilerplate dilutes signal from MD&A sections. Targeting Item 7 specifically would improve this but requires section-anchor parsing that varies across filings.
 - **Options data coverage.** yfinance options chain data is inconsistent across tickers. Some names return no expirations at all. The earnings brief gracefully omits the implied-move section when this happens.
-- **Sentiment scorer.** TextBlob is the default. FinBERT is available (`SENTIMENT_SCORER=finbert` + `uv sync --group sentiment-ml`) and produces better results on financial text, but is slower.
+- **Sentiment scorer.** FinBERT is the default for finance-domain accuracy. Requires `uv sync --group sentiment-ml` (torch + transformers). Falls back to TextBlob with a warning if those deps are missing. Force TextBlob with `SENTIMENT_SCORER=textblob` for lightweight dev/CI runs.
