@@ -92,6 +92,30 @@ class EnrichmentDaily(Base):
     )
 
 
+class EarningsBriefOutcome(Base):
+    """Tracks earnings brief predictions vs actual outcomes."""
+
+    __tablename__ = "earnings_brief_outcome"
+    __table_args__ = (
+        UniqueConstraint("ticker", "earnings_date", name="uq_outcome_ticker_erdate"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(10), index=True)
+    brief_date: Mapped[date] = mapped_column(Date)
+    earnings_date: Mapped[date] = mapped_column(Date, index=True)
+    predicted_dir: Mapped[str] = mapped_column(String(16))
+    conviction: Mapped[float] = mapped_column(Float)
+    actual_eps_surp: Mapped[float | None] = mapped_column(Float, nullable=True)
+    actual_rev_surp: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stock_move_1d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    outcome: Mapped[str] = mapped_column(String(16), default="pending")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class BriefingDaily(Base):
     """Cached meta-layer briefing output (Phase 5).
 
