@@ -21,8 +21,8 @@ $ uv run sfe run-agent
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/samwise-k/signal-fusion-engine.git
-cd signal-fusion-engine
+git clone https://github.com/samwise-k/claudfolio.git
+cd claudfolio
 uv sync
 uv sync --group quant       # yfinance (options-implied move)
 uv sync --group llm         # anthropic SDK (Claude agent)
