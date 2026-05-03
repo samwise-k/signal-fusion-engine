@@ -116,6 +116,101 @@ class EarningsBriefOutcome(Base):
     )
 
 
+class SignalDaily(Base):
+    """Per-ticker daily directional signal for the experiment."""
+
+    __tablename__ = "signal_daily"
+    __table_args__ = (UniqueConstraint("ticker", "as_of", name="uq_signal_ticker_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(10), index=True)
+    as_of: Mapped[date] = mapped_column(Date, index=True)
+    direction: Mapped[str] = mapped_column(String(16))
+    conviction: Mapped[float] = mapped_column(Float)
+    dominant_component: Mapped[str] = mapped_column(String(32))
+    reasoning: Mapped[str] = mapped_column(Text)
+    entry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    signal_components: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Portfolio(Base):
+    """Simulated portfolio state. One active portfolio at a time."""
+
+    __tablename__ = "portfolio"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True, default="default")
+    starting_equity: Mapped[float] = mapped_column(Float, default=100_000.0)
+    cash: Mapped[float] = mapped_column(Float, default=100_000.0)
+    inception_date: Mapped[date] = mapped_column(Date)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Position(Base):
+    """Open position in the simulated portfolio."""
+
+    __tablename__ = "position"
+    __table_args__ = (
+        UniqueConstraint("portfolio_id", "ticker", name="uq_position_portfolio_ticker"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(Integer, index=True)
+    ticker: Mapped[str] = mapped_column(String(10), index=True)
+    direction: Mapped[str] = mapped_column(String(8))  # long / short
+    shares: Mapped[float] = mapped_column(Float)
+    entry_price: Mapped[float] = mapped_column(Float)
+    entry_date: Mapped[date] = mapped_column(Date)
+    current_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Trade(Base):
+    """Completed trade log for the simulated portfolio."""
+
+    __tablename__ = "trade"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(Integer, index=True)
+    ticker: Mapped[str] = mapped_column(String(10), index=True)
+    action: Mapped[str] = mapped_column(String(16))  # open / close / resize
+    direction: Mapped[str] = mapped_column(String(8))
+    shares: Mapped[float] = mapped_column(Float)
+    price: Mapped[float] = mapped_column(Float)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class AgentSession(Base):
+    """Log of a single agent run — reasoning trace and decisions."""
+
+    __tablename__ = "agent_session"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(Integer, index=True)
+    run_date: Mapped[date] = mapped_column(Date, index=True)
+    decisions_made: Mapped[int] = mapped_column(Integer, default=0)
+    reasoning_trace: Mapped[dict] = mapped_column(JSON, default=dict)
+    portfolio_snapshot_before: Mapped[dict] = mapped_column(JSON, default=dict)
+    portfolio_snapshot_after: Mapped[dict] = mapped_column(JSON, default=dict)
+    model: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class BriefingDaily(Base):
     """Cached meta-layer briefing output (Phase 5).
 

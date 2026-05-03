@@ -58,3 +58,6 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Generated output
+output/

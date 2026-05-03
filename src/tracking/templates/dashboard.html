@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SFE Signal Experiment Dashboard</title>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9;
+          --green: #3fb950; --red: #f85149; --yellow: #d29922; --blue: #58a6ff;
+          --dim: #8b949e; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; padding: 2rem; }
+  h1 { color: #f0f6fc; margin-bottom: 0.25rem; }
+  .subtitle { color: var(--dim); margin-bottom: 2rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; }
+  .card h3 { color: var(--blue); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+  .big-number { font-size: 2.5rem; font-weight: 700; line-height: 1; }
+  .big-number.positive { color: var(--green); }
+  .big-number.negative { color: var(--red); }
+  .big-number.neutral { color: var(--yellow); }
+  .label { color: var(--dim); font-size: 0.8rem; margin-top: 0.25rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+  th { text-align: left; color: var(--dim); font-size: 0.75rem; text-transform: uppercase; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+  td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+  .win { color: var(--green); }
+  .loss { color: var(--red); }
+  .neutral-text { color: var(--yellow); }
+  .indicator { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 0.5rem; vertical-align: middle; }
+  .indicator.green { background: var(--green); }
+  .indicator.yellow { background: var(--yellow); }
+  .indicator.red { background: var(--red); }
+  .kill-box { display: flex; align-items: center; gap: 0.5rem; font-size: 1.1rem; font-weight: 600; margin-top: 0.5rem; }
+  .section { margin-bottom: 2rem; }
+  .section h2 { color: #f0f6fc; margin-bottom: 1rem; font-size: 1.2rem; }
+  .bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin-top: 0.5rem; }
+  .bar-fill { height: 100%; border-radius: 4px; }
+  .progress-label { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--dim); margin-top: 0.25rem; }
+</style>
+</head>
+<body>
+
+<h1>Signal Experiment Dashboard</h1>
+<p class="subtitle">Generated {{ generated_at }} &middot; {{ stats.total_signals }} signals scored</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>Primary Metric: EV per Call (5d)</h3>
+    {% set ev5 = stats.by_horizon.get("5d", {}) %}
+    {% if ev5.get("n", 0) > 0 %}
+    <div class="big-number {{ 'positive' if ev5.ev > 0 else 'negative' if ev5.ev < 0 else 'neutral' }}">
+      {{ "%.4f"|format(ev5.ev) }}
+    </div>
+    <div class="label">{{ ev5.n }} signals &middot; {{ ev5.wins }}W / {{ ev5.losses }}L / {{ ev5.neutrals }}N</div>
+    {% else %}
+    <div class="big-number neutral">&mdash;</div>
+    <div class="label">No 5-day scored signals yet</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Accuracy (5d actionable)</h3>
+    {% if ev5.get("accuracy") is not none %}
+    <div class="big-number {{ 'positive' if ev5.accuracy > 0.5 else 'negative' if ev5.accuracy < 0.5 else 'neutral' }}">
+      {{ "%.1f"|format(ev5.accuracy * 100) }}%
+    </div>
+    <div class="label">{{ ev5.wins + ev5.losses }} actionable of {{ ev5.n }} total</div>
+    {% else %}
+    <div class="big-number neutral">&mdash;</div>
+    <div class="label">Waiting for actionable signals</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Kill Indicator</h3>
+    {% set color = kill_indicator.color %}
+    <div class="kill-box">
+      <span class="indicator {{ color }}"></span>
+      {{ kill_indicator.label }}
+    </div>
+    <div class="label">{{ kill_indicator.reason }}</div>
+  </div>
+
+  <div class="card">
+    <h3>Sample Size</h3>
+    <div class="big-number">{{ stats.total_signals }}</div>
+    <div class="label">{{ stats.calls_for_significance }} more needed for significance</div>
+    <div class="bar"><div class="bar-fill" style="width: {{ [stats.total_signals, 100]|min }}%; background: var(--blue);"></div></div>
+    <div class="progress-label"><span>0</span><span>100 target</span></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Performance by Horizon</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Horizon</th><th>N</th><th>Wins</th><th>Losses</th><th>Neutral</th><th>Accuracy</th><th>EV</th></tr></thead>
+      <tbody>
+        {% for h in ["1d", "3d", "5d"] %}
+        {% set d = stats.by_horizon.get(h, {}) %}
+        <tr>
+          <td>{{ h }}</td>
+          <td>{{ d.get("n", 0) }}</td>
+          <td class="win">{{ d.get("wins", 0) }}</td>
+          <td class="loss">{{ d.get("losses", 0) }}</td>
+          <td class="neutral-text">{{ d.get("neutrals", 0) }}</td>
+          <td>{{ "%.1f%%"|format(d.accuracy * 100) if d.get("accuracy") is not none else "—" }}</td>
+          <td class="{{ 'win' if d.get('ev', 0) > 0 else 'loss' if d.get('ev', 0) < 0 else '' }}">
+            {{ "%.4f"|format(d.ev) if d.get("n", 0) > 0 else "—" }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Breakdown by Conviction</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Bucket</th><th>N</th><th>Wins</th><th>Losses</th><th>Accuracy</th><th>EV (5d)</th></tr></thead>
+      <tbody>
+        {% for bucket, d in stats.by_conviction.items() %}
+        <tr>
+          <td>{{ bucket }}</td>
+          <td>{{ d.n }}</td>
+          <td class="win">{{ d.wins }}</td>
+          <td class="loss">{{ d.losses }}</td>
+          <td>{{ "%.1f%%"|format(d.accuracy * 100) if d.accuracy is not none else "—" }}</td>
+          <td class="{{ 'win' if d.ev > 0 else 'loss' if d.ev < 0 else '' }}">{{ "%.4f"|format(d.ev) }}</td>
+        </tr>
+        {% endfor %}
+        {% if not stats.by_conviction %}
+        <tr><td colspan="6" style="color: var(--dim);">No 5-day scored signals yet</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Breakdown by Dominant Component</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Component</th><th>N</th><th>Wins</th><th>Losses</th><th>Accuracy</th><th>EV (5d)</th></tr></thead>
+      <tbody>
+        {% for comp, d in stats.by_component.items() %}
+        <tr>
+          <td>{{ comp }}</td>
+          <td>{{ d.n }}</td>
+          <td class="win">{{ d.wins }}</td>
+          <td class="loss">{{ d.losses }}</td>
+          <td>{{ "%.1f%%"|format(d.accuracy * 100) if d.accuracy is not none else "—" }}</td>
+          <td class="{{ 'win' if d.ev > 0 else 'loss' if d.ev < 0 else '' }}">{{ "%.4f"|format(d.ev) }}</td>
+        </tr>
+        {% endfor %}
+        {% if not stats.by_component %}
+        <tr><td colspan="6" style="color: var(--dim);">No 5-day scored signals yet</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Recent Signals</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>Ticker</th><th>Date</th><th>Direction</th><th>Conviction</th><th>Component</th><th>1d</th><th>3d</th><th>5d</th></tr></thead>
+      <tbody>
+        {% for s in recent_signals %}
+        <tr>
+          <td>{{ s.ticker }}</td>
+          <td>{{ s.as_of }}</td>
+          <td class="{{ 'win' if s.direction == 'bullish' else 'loss' if s.direction == 'bearish' else 'neutral-text' }}">{{ s.direction }}</td>
+          <td>{{ "%.0f%%"|format(s.conviction * 100) }}</td>
+          <td>{{ s.dominant_component }}</td>
+          {% for h in ["1d", "3d", "5d"] %}
+          {% set ho = s.horizons.get(h) %}
+          <td class="{{ 'win' if ho and ho.outcome == 'win' else 'loss' if ho and ho.outcome == 'loss' else 'neutral-text' }}">
+            {{ "%.2f%%"|format(ho.return * 100) if ho else "—" }}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+        {% if not recent_signals %}
+        <tr><td colspan="8" style="color: var(--dim);">No scored signals yet</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</body>
+</html>

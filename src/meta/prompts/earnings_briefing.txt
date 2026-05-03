@@ -9,7 +9,7 @@ You receive a JSON payload for one ticker containing (when available):
 - sentiment: score (-1..1), direction, 7-day delta, source breakdown, notable headlines
 - quant: close, 1/5/20d returns, RSI-14, SMA position, MACD signal, volume ratio, sector-relative return, health score
 - enrichment: insider trade net sentiment, analyst revision trend, upcoming events
-- prior_outcome: last quarter's SFE call {predicted_dir, conviction, actual_eps_surp, stock_move_1d, outcome} — null if first quarter
+- prior_outcome: last quarter's SFE call {predicted_dir, conviction, actual_eps_surp, actual_rev_surp, stock_move_1d, outcome} — null if first quarter
 
 Fields may be null if data was unavailable. Treat null as "missing", not "zero".
 
@@ -22,28 +22,33 @@ Fields may be null if data was unavailable. Treat null as "missing", not "zero".
 Isolated signals without cross-tier confirmation are weak — say so.
 
 # Task
-Produce a structured earnings context brief with these sections:
+Produce a structured earnings context brief. Lead with the directional call (the punchline), then the supporting evidence. Readers scan on mobile — the thesis goes first.
 
-1. **Setup summary** — 2-3 sentences: who is reporting, when, what the market context looks like heading in.
+Sections in this order:
 
-2. **Consensus + revisions** — what the street expects (EPS, revenue), how many analysts cover it, and whether analyst sentiment has shifted recently (upgrade/downgrade/stable from enrichment data).
+1. **Directional read** — SFE's framework output with conviction tag: **[high]** (>= 3 converging signals spanning >= 2 tiers), **[medium]** (2 converging signals), **[low]** (1 signal or cross-tier conflict). State the direction (bullish/bearish/neutral into print) and what would change the call.
 
-3. **Options-implied context** — if implied_move data is present, report the ATM straddle as a percentage and what it means (is the market pricing a larger or smaller move than the historical average reaction?). If implied_move is null, write one sentence: "Options data unavailable for this ticker." Do NOT fabricate a number.
+2. **Prior call** — if prior_outcome is present, format exactly as:
+   "Last quarter: predicted {predicted_dir} ({conviction} conviction). Actual: EPS surprise {actual_eps_surp}%, revenue surprise {actual_rev_surp}%, stock moved {stock_move_1d}% day-1. Outcome: {outcome}."
+   If actual_rev_surp is null, omit the revenue surprise clause.
+   If prior_outcome is null, write: "First earnings brief for this ticker — no prior call to reference."
 
-4. **Signal convergence/divergence** — multi-tier analysis. Look for agreement or conflict across sentiment, quant, and enrichment signals heading into the print. Name each signal explicitly with its value. Label the overall setup: converging-bullish, converging-bearish, divergent, or neutral.
+3. **Setup summary** — 2-3 sentences: who is reporting, when, what the market context looks like heading in.
 
-5. **Historical pattern** — beat/miss track record from the last 8 quarters. Note any streaks. Include the typical stock reaction magnitude on beats vs misses if visible in the data.
+4. **Consensus + revisions** — what the street expects (EPS, revenue), how many analysts cover it, and whether analyst sentiment has shifted recently (upgrade/downgrade/stable from enrichment data). If consensus is null, write: "Consensus estimate data not available for this ticker."
 
-6. **Risk factors** — what would make this a bad report? What's already priced in? What would surprise the market? Be specific to the data.
+5. **Options-implied context** — if implied_move data is present, report the ATM straddle as a percentage and what it means (is the market pricing a larger or smaller move than the historical average reaction?). If implied_move is null, write: "Options chain data not available for this ticker. Directional read is based on sentiment, technicals, and fundamental signals only." Do NOT fabricate a number.
 
-7. **Directional read** — SFE's framework output with conviction tag: **[high]** (>= 3 converging signals spanning >= 2 tiers), **[medium]** (2 converging signals), **[low]** (1 signal or cross-tier conflict). State the direction (bullish/bearish/neutral into print) and what would change the call.
+6. **Signal convergence/divergence** — multi-tier analysis. Look for agreement or conflict across sentiment, quant, and enrichment signals heading into the print. Name each signal explicitly with its value. Label the overall setup: converging-bullish, converging-bearish, divergent, or neutral.
 
-8. **Prior call** — if prior_outcome is present, include: "Last quarter: predicted {predicted_dir} ({conviction} conviction), actual EPS surprise {actual_eps_surp}%, stock moved {stock_move_1d}%, outcome: {outcome}." If null, omit this section entirely.
+7. **Historical pattern** — beat/miss track record from the last 8 quarters. Note any streaks. Include the typical stock reaction magnitude on beats vs misses if visible in the data. If beat_miss_history is empty, write: "No earnings history available for this ticker."
+
+8. **Risk factors** — what would make this a bad report? What's already priced in? What would surprise the market? Be specific to the data.
 
 # Rules
 - Never output buy/sell recommendations or numeric price targets.
 - Never speculate beyond the data in the payload.
-- If a field is missing, say so rather than guessing.
+- If a field is missing, say so with an explicit placeholder rather than guessing or silently omitting the section. Every section must appear in the output for format consistency.
 - Be direct. Name the numbers. No filler.
 
 # Output format
@@ -51,11 +56,11 @@ Markdown. Use this structure:
 
 ## Earnings Brief — {ticker} — {earnings_date}
 
+### Directional read
+### Prior call
 ### Setup
 ### Consensus
 ### Options-implied move
 ### Signal analysis
 ### Historical pattern
 ### Risk factors
-### Directional read
-### Prior call

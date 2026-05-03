@@ -125,6 +125,24 @@ class TestAnalystSummarize:
         out = analyst_revisions.summarize(rows)
         assert out["trend"] == "downgrade"
 
+    def test_before_date_filters_post_earnings_periods(self) -> None:
+        rows = [
+            {"period": "2026-05-01", "strongBuy": 2, "buy": 2, "hold": 8, "sell": 5, "strongSell": 3},
+            {"period": "2026-04-01", "strongBuy": 8, "buy": 10, "hold": 3, "sell": 0, "strongSell": 0},
+            {"period": "2026-03-01", "strongBuy": 5, "buy": 10, "hold": 3, "sell": 1, "strongSell": 0},
+        ]
+        out = analyst_revisions.summarize(rows, before_date=date(2026, 4, 22))
+        assert out["latest_period"] == "2026-04-01"
+        assert out["trend"] == "upgrade"
+
+    def test_before_date_all_filtered_returns_stable(self) -> None:
+        rows = [
+            {"period": "2026-05-01", "strongBuy": 10, "buy": 10, "hold": 0, "sell": 0, "strongSell": 0},
+        ]
+        out = analyst_revisions.summarize(rows, before_date=date(2026, 4, 22))
+        assert out["trend"] == "stable"
+        assert out["latest_period"] is None
+
 
 class TestAggregate:
     ON = date(2026, 4, 18)
@@ -167,6 +185,60 @@ class TestAggregate:
         assert payload["insider_trades"]["net_insider_sentiment"] == "neutral"
         assert payload["next_earnings"] is None
         assert payload["analyst_activity"]["trend"] == "stable"
+
+    def test_earnings_date_windows_insider_lookback(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict = {}
+
+        def fake_fetch_txns(ticker, on_date, **kw):
+            captured["insider_end"] = on_date
+            return [{"transactionCode": "P", "change": 100, "transactionPrice": 50.0}]
+
+        monkeypatch.setattr(insider_trades, "fetch_transactions", fake_fetch_txns)
+        monkeypatch.setattr(
+            event_calendar, "fetch_earnings",
+            lambda t, d, **k: [{"date": "2026-04-22", "epsEstimate": 1.5}],
+        )
+        monkeypatch.setattr(analyst_revisions, "fetch_recommendations", lambda t: [])
+
+        aggregator.aggregate("NVDA", self.ON)
+        assert captured["insider_end"] == date(2026, 4, 22)
+
+    def test_explicit_earnings_date_overrides_calendar(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict = {}
+
+        def fake_fetch_txns(ticker, on_date, **kw):
+            captured["insider_end"] = on_date
+            return []
+
+        monkeypatch.setattr(insider_trades, "fetch_transactions", fake_fetch_txns)
+        monkeypatch.setattr(
+            event_calendar, "fetch_earnings",
+            lambda t, d, **k: [{"date": "2026-04-22", "epsEstimate": 1.5}],
+        )
+        monkeypatch.setattr(analyst_revisions, "fetch_recommendations", lambda t: [])
+
+        aggregator.aggregate("NVDA", self.ON, earnings_date=date(2026, 5, 1))
+        assert captured["insider_end"] == date(2026, 5, 1)
+
+    def test_no_earnings_falls_back_to_on_date(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict = {}
+
+        def fake_fetch_txns(ticker, on_date, **kw):
+            captured["insider_end"] = on_date
+            return []
+
+        monkeypatch.setattr(insider_trades, "fetch_transactions", fake_fetch_txns)
+        monkeypatch.setattr(event_calendar, "fetch_earnings", lambda t, d, **k: [])
+        monkeypatch.setattr(analyst_revisions, "fetch_recommendations", lambda t: [])
+
+        aggregator.aggregate("NVDA", self.ON)
+        assert captured["insider_end"] == self.ON
 
     def test_partial_failure_preserves_working_sources(
         self, monkeypatch: pytest.MonkeyPatch

@@ -8,6 +8,7 @@ mechanical-flow angle from the planning doc.
 from __future__ import annotations
 
 import os
+from datetime import date
 from typing import Any
 
 import httpx
@@ -42,8 +43,19 @@ def _bull_score(row: dict[str, Any]) -> int:
     )
 
 
-def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Compare latest month vs prior to label trend as upgrade/downgrade/stable."""
+def summarize(
+    rows: list[dict[str, Any]],
+    *,
+    before_date: date | None = None,
+) -> dict[str, Any]:
+    """Compare latest month vs prior to label trend as upgrade/downgrade/stable.
+
+    When ``before_date`` is given, only periods strictly before that date are
+    considered — this focuses the signal on pre-earnings revisions rather than
+    post-earnings noise.
+    """
+    if before_date is not None:
+        rows = [r for r in rows if (r.get("period") or "") < before_date.isoformat()]
     if not rows:
         return {
             "latest_period": None,

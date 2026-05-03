@@ -88,6 +88,42 @@ class TestWeightedRollup:
         assert "twitter_unknown" not in out["source_breakdown"]
         assert out["sentiment_score"] == 0.5
 
+class TestDedupArticles:
+    def test_cross_source_duplicate_removed(self) -> None:
+        items = [
+            {"source": "news_finnhub", "score": 0.5, "headline": "LMT wins contract", "publisher": "Reuters"},
+            {"source": "news_finlight", "score": 0.6, "headline": "LMT wins contract", "publisher": "reuters.com"},
+        ]
+        out = aggregator._dedup_articles(items)
+        assert len(out) == 1
+        assert out[0]["source"] == "news_finnhub"
+
+    def test_different_headlines_kept(self) -> None:
+        items = [
+            {"source": "news_finnhub", "score": 0.5, "headline": "LMT wins contract", "publisher": "Reuters"},
+            {"source": "news_finlight", "score": 0.6, "headline": "NVDA beats estimates", "publisher": "Reuters"},
+        ]
+        out = aggregator._dedup_articles(items)
+        assert len(out) == 2
+
+    def test_case_and_punctuation_normalized(self) -> None:
+        items = [
+            {"source": "news_finnhub", "score": 0.5, "headline": "LMT Wins Contract!", "publisher": "Reuters"},
+            {"source": "news_finlight", "score": 0.6, "headline": "lmt wins contract", "publisher": "reuters"},
+        ]
+        out = aggregator._dedup_articles(items)
+        assert len(out) == 1
+
+    def test_empty_headlines_never_deduped(self) -> None:
+        items = [
+            {"source": "news_finnhub", "score": 0.0, "headline": "", "publisher": ""},
+            {"source": "news_finlight", "score": 0.0, "headline": "", "publisher": ""},
+            {"source": "sec_filings", "score": 0.1, "headline": "8-K filed 2026-04-15", "publisher": "SEC EDGAR"},
+        ]
+        out = aggregator._dedup_articles(items)
+        assert len(out) == 3
+
+
 class TestApplyHistory:
     def _payload(self, score: float) -> dict:
         return {
@@ -222,8 +258,7 @@ class TestExpandItemCodes:
         assert "9.99" not in out
 
     def test_every_code_expands_to_non_empty_english(self) -> None:
-        # The whole point: every mapped code produces text TextBlob can parse,
-        # even if the resulting score is neutral for descriptor-only titles.
+        # Every mapped code produces parseable text regardless of backend.
         for code, title in sec_item_codes.ITEM_CODE_TITLES.items():
             expanded = sec_item_codes.expand_items(code)
             assert expanded == title

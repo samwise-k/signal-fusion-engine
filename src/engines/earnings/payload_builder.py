@@ -80,6 +80,7 @@ def _get_prior_outcome(session: Session, ticker: str) -> dict[str, Any] | None:
         "predicted_dir": row.predicted_dir,
         "conviction": row.conviction,
         "actual_eps_surp": row.actual_eps_surp,
+        "actual_rev_surp": row.actual_rev_surp,
         "stock_move_1d": row.stock_move_1d,
         "outcome": row.outcome,
     }

@@ -2,6 +2,50 @@
 
 Tracked items from /plan-ceo-review on 2026-04-24.
 
+---
+
+## P0 — Agentic Portfolio Management Experiment
+
+Pivot from signal experiment (2026-05-02). The engines stay; the meta-layer becomes an autonomous agent managing a simulated portfolio.
+
+**Research question:** Can an LLM agent, given structured market signals and full discretion over a simulated book, manage a portfolio at a level of competence comparable to a human?
+
+### Architecture
+
+- **Pure simulation.** Paper portfolio with a starting balance, no broker integration. Prices from yfinance.
+- **Daily cadence.** Agent runs pre-market, reviews engine outputs, makes allocation decisions.
+- **Near-full autonomy.** Claude decides what to buy/sell, sizing, and timing. Minimal guardrails.
+- **Agentic harness.** Custom tool-use loop — Claude calls tools like `get_portfolio_state`, `get_signals`, `open_position`, `close_position`, `resize_position`, etc.
+- **Decision logging.** Every trade decision is logged with the agent's reasoning for post-hoc analysis.
+
+### TODO
+
+#### 1. Simulated portfolio engine
+**What:** Portfolio state model (positions, cash, equity, P&L), trade execution against yfinance prices, persistent state in SQLite.
+**Effort:** M
+
+#### 2. Agent tool definitions
+**What:** Define the tool schemas the agent can call: `get_portfolio_state`, `get_signals`, `get_ticker_detail`, `open_position`, `close_position`, `resize_position`, `get_trade_history`.
+**Effort:** M
+
+#### 3. Agentic harness
+**What:** Tool-use loop that feeds engine outputs to Claude, lets it call portfolio tools, and logs the full decision trace. Uses Anthropic SDK directly.
+**Effort:** L
+
+#### 4. `sfe run-agent` CLI command
+**What:** Entry point that runs engines for the watchlist, then hands off to the agentic harness for portfolio decisions.
+**Effort:** S
+
+#### 5. Performance tracker
+**What:** Track portfolio value over time, compare vs. benchmarks (SPY), compute basic metrics (return, drawdown, Sharpe if enough data). `sfe agent-performance` CLI command.
+**Effort:** M
+
+#### 6. Daily automation
+**What:** launchd job (or similar) to run `sfe run-agent` pre-market on weekdays.
+**Effort:** S
+
+---
+
 ## P2 — Brief-to-thread formatter
 **What:** Auto-format earnings brief markdown into Twitter-thread segments (280-char numbered tweets with hook).
 **Why:** Removes the most tedious publishing step (5-10 min manual formatting per brief).
@@ -29,12 +73,8 @@ Shipped with earnings engine PR. `_bootstrap_db()`, `_parse_date()`, `_resolve_t
 **Depends on:** Earnings calendar widget + sector mapping from watchlist.yaml.
 **Context:** Brief is already data-rich without it. Add after pilot cadence is established.
 
-## P3 — Insider/analyst windowing (30-day pre-print)
-**What:** Window insider trades and analyst revisions to 30 days before earnings_date instead of using whatever's in the DB.
-**Why:** Focuses the signal on pre-print activity, which is more predictive than a generic 30-day lookback from today.
-**Effort:** S (human ~2 hrs / CC ~15 min)
-**Depends on:** Nothing. Existing enrichment data works for week 1.
-**Context:** Accepted scope from CEO review, deferred from Sunday must-have. Build when first briefs expose the gap.
+## ~~P3 — Insider/analyst windowing (30-day pre-print)~~ DONE (2026-04-25)
+Enrichment aggregator now auto-detects `earnings_date` from the calendar and windows insider trades to 30 days before earnings. Analyst revisions filtered to pre-earnings periods.
 
 ---
 
@@ -43,9 +83,9 @@ Shipped with earnings engine PR. `_bootstrap_db()`, `_parse_date()`, `_resolve_t
 Captured from a whole-project review (2026-04-19); not yet scheduled. Ordered within each engine by rough signal-quality impact.
 
 ### Sentiment
-- Promote FinBERT to default scorer; retire TextBlob after spot-checking a week of rows. Single biggest quality lever.
+- ~~Promote FinBERT to default scorer; retire TextBlob after spot-checking a week of rows.~~ DONE (2026-04-25). FinBERT is now default; TextBlob is fallback when sentiment-ml deps missing.
 - Split `sec_filings` weight into `sec_8k` vs `sec_periodic` (8-Ks carry more event signal than 10-K/10-Q front matter). Cheaper than MD&A section parsing.
-- Dedup Finnhub + finlight articles before `weighted_rollup` (hash on normalized title + publisher) so wire-service reprints don't double-count.
+- ~~Dedup Finnhub + finlight articles before `weighted_rollup` so wire-service reprints don't double-count.~~ DONE (2026-04-25). Normalized-headline dedup in `_dedup_articles()` before rollup.
 - Either populate `key_topics` (top TF-IDF tokens across the day's headlines) or remove the field from the schema and prompt.
 
 ### Quantitative
@@ -60,10 +100,9 @@ Captured from a whole-project review (2026-04-19); not yet scheduled. Ordered wi
 - Add a post-earnings-drift flag ("earnings N days ago, stock ±X%") to the payload.
 - Pull FRED FOMC/CPI macro calendar forward from the deferred list — free, low-effort, meta-layer currently has no macro context.
 
-### Meta layer
-- Feed yesterday's briefing (or a tier-change diff) into the prompt so Claude can reference prior calls instead of cold-starting each morning.
-- Add a `briefing_outcomes` table for manual post-hoc right/wrong marking. Unblocks threshold tuning and eventually provides GBT labels.
-- Broad-market context block (SPY/QQQ/VIX + upcoming FOMC/CPI) — worth prioritizing because high-conviction calls on risk-off days should be downgraded.
+### Agent / meta layer
+- Feed prior day's agent decisions into context so Claude can reference its own track record instead of cold-starting each session.
+- Broad-market context block (SPY/QQQ/VIX + upcoming FOMC/CPI) — agent should factor macro regime into allocation decisions.
 
 ### Cross-cutting
 - `config/sources.yaml` weights are currently guesses and are the most important tuning knob. Backtest weight variants against forward returns once a few weeks of rows accumulate.
@@ -78,3 +117,46 @@ Captured from a whole-project review (2026-04-19); not yet scheduled. Ordered wi
 - Backtesting framework.
 - Email/Slack delivery.
 - Historical comparison anchor in earnings briefs — needs prior outcome data first.
+
+---
+
+## CLI/TUI redesign
+
+Captured from /plan-design-review on 2026-04-25. Transform the CLI from bare argparse into a Claude Code-inspired interactive TUI.
+
+### P1 — Textual-based interactive TUI
+**What:** Build an interactive TUI app using Textual. `sfe` with no args launches the session. Slash commands (`/earnings`, `/sentiment`, `/quant`, `/enrich`, `/meta`, `/calendar`, `/log`, `/status`, `/help`, `/quit`) with autocomplete dropdown. Formatted output via Rich renderables. Step-by-step progress with ✓/⚠/✗ markers. Scrollable output with command history persisted to `~/.sfe_history`.
+**Why:** Current CLI is `uv run sfe run-earnings-brief --ticker NVDA` with raw log output. New TUI: type `sfe`, then `/earnings NVDA` with beautiful formatted output and progress feedback.
+**Effort:** L (human ~1-2 weeks / CC ~2-3 hrs)
+**Depends on:** Nothing. Existing `pipeline.py` functions are the backing layer — TUI calls the same engine functions.
+**Design decisions (from review):**
+- Framework: Textual (Python's closest analog to Ink/React, which powers Claude Code)
+- Entry point: `sfe` = TUI, `sfe run-*` = non-interactive (backward compat preserved)
+- Short command names: `/earnings`, `/sentiment`, `/quant`, `/enrich`, `/meta`, `/calendar`, `/log`, `/status`
+- Bare ticker input (e.g. `NVDA`) triggers quick-look summary from DB
+- API failures: inline ⚠ degradation markers in progress steps, brief still generates
+- Min terminal width: 80 columns enforced with friendly message
+- Colors: cyan headers, green positive, red negative, yellow warning, dim gray secondary
+- Widgets: Header, Input+autocomplete, RichLog (scrollable), DataTable, ProgressBar, Footer
+- Command history + scrollable output across commands
+**New files:** `src/tui/app.py`, `src/tui/commands.py`, `src/tui/widgets.py`, `src/tui/renderer.py`
+**New deps:** `textual` (add to pyproject.toml dependency group `tui`)
+
+### P2 — Quick-look ticker summary
+**What:** Bare ticker input (`NVDA` at prompt) shows compact card: last sentiment score, quant health, next earnings, enrichment summary from DB. No API calls — reads stored data only.
+**Why:** Most natural trader interaction. Type ticker, see what's up.
+**Effort:** S (human ~2 hrs / CC ~15 min)
+**Depends on:** TUI implementation (P1).
+
+### P3 — DESIGN.md terminal design system
+**What:** Document terminal color palette, Textual widget vocabulary, output formatting conventions.
+**Why:** Prevents design drift as new commands/views are added.
+**Effort:** S (human ~1 hr / CC ~15 min)
+**Depends on:** Nothing. Can be written before or during TUI implementation.
+
+### P3 — Evaluate prompt_toolkit as lighter TUI alternative
+**What:** After 2 weeks of Textual TUI usage, evaluate whether prompt_toolkit would be a simpler fit.
+**Why:** Outside voice from /plan-eng-review flagged Textual as potentially overkill for a command-see-output REPL. prompt_toolkit gives autocomplete + colors without the widget framework overhead.
+**Effort:** S (human ~2 hrs / CC ~30 min) for evaluation; M for migration if warranted.
+**Depends on:** TUI P1 being used for at least 1-2 weeks.
+**Context:** Textual is an innovation token. If widget layout features (DataTable, ProgressBar, multi-pane) prove valuable, stay. If it's just Input + RichLog, prompt_toolkit is lighter. Evaluate after 2026-05-09.

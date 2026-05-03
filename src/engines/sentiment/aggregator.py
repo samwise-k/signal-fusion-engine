@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections import defaultdict
 from datetime import date
 from typing import Any
@@ -119,6 +121,33 @@ def _score_edgar_filings(filings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def _normalize_headline(text: str) -> str:
+    text = unicodedata.normalize("NFKD", text).lower()
+    text = re.sub(r"[^a-z0-9 ]", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _dedup_articles(scored: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop cross-source duplicate articles (wire-service reprints).
+
+    Keyed on normalized headline only — publisher names vary across sources
+    for the same wire story (e.g. "Reuters" vs "reuters.com"). Empty
+    headlines are never deduped (they're typically EDGAR filings with
+    generated descriptions). First occurrence wins, so source ordering in
+    ``aggregate()`` determines tie-breaking.
+    """
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for item in scored:
+        headline = item.get("headline") or ""
+        key = _normalize_headline(headline)
+        if not key or key not in seen:
+            if key:
+                seen.add(key)
+            out.append(item)
+    return out
+
+
 def _pick_notable(scored: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ranked = sorted(scored, key=lambda x: abs(x["score"]), reverse=True)
     out: list[dict[str, Any]] = []
@@ -210,6 +239,7 @@ def aggregate(
     else:
         scored.extend(_score_edgar_filings(filings))
 
+    scored = _dedup_articles(scored)
     rollup = weighted_rollup(scored, weights)
 
     return {

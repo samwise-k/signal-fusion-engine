@@ -1,9 +1,10 @@
 """Sentiment scoring with pluggable backends.
 
-Default backend is TextBlob — fast, zero dependencies beyond core, suitable
-for development and the test suite. Set ``SENTIMENT_SCORER=finbert`` (and
-install the ``sentiment-ml`` dependency group) for production runs where
-finance-domain accuracy matters, especially over SEC filings.
+Default backend is FinBERT (ProsusAI/finbert) — finance-domain accuracy that
+matters for SEC filings and earnings text. Requires the ``sentiment-ml``
+dependency group (``uv sync --group sentiment-ml``). Falls back to TextBlob
+with a warning if torch/transformers are not installed. Override with
+``SENTIMENT_SCORER=textblob`` for lightweight dev/CI runs.
 """
 
 from __future__ import annotations
@@ -36,9 +37,21 @@ def score_texts(texts: list[str]) -> list[float]:
 
 
 def _resolve_backend():
-    name = os.environ.get("SENTIMENT_SCORER", "textblob").strip().lower()
+    import importlib.util
+
+    name = os.environ.get("SENTIMENT_SCORER", "finbert").strip().lower()
     if name == "finbert":
-        return _finbert_score
+        if (
+            importlib.util.find_spec("transformers") is not None
+            and importlib.util.find_spec("torch") is not None
+        ):
+            return _finbert_score
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "FinBERT requested but sentiment-ml deps missing; falling back to TextBlob. "
+            "Install with: uv sync --group sentiment-ml"
+        )
     return _textblob_score
 
 
