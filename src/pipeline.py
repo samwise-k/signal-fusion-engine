@@ -436,7 +436,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_agent = subs.add_parser("run-agent", help="Run the agentic portfolio manager")
     p_agent.add_argument("--date", help="ISO date (YYYY-MM-DD); defaults to today")
-    p_agent.add_argument("--model", default="claude-sonnet-4-6", help="Claude model to use (default: claude-sonnet-4-6)")
+    p_agent.add_argument("--model", default="claude-opus-4-6", help="Claude model to use (default: claude-opus-4-6)")
     p_agent.add_argument("--portfolio", default="default", help="Portfolio name (default: default)")
     p_agent.add_argument("--starting-equity", default="100000", help="Starting equity for new portfolios (default: 100000)")
     p_agent.set_defaults(func=cmd_run_agent)
