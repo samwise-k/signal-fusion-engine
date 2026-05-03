@@ -212,10 +212,11 @@ def portfolio_snapshot(
         if p.direction == "long":
             market_value = p.shares * cur_price
             unrealized_pnl = (cur_price - p.entry_price) * p.shares
+            total_position_value += market_value
         else:
             market_value = p.shares * cur_price
             unrealized_pnl = (p.entry_price - cur_price) * p.shares
-        total_position_value += market_value
+            total_position_value -= market_value
 
         pos_list.append({
             "ticker": p.ticker,
